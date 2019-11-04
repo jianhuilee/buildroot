@@ -1,0 +1,28 @@
+image boot.vfat {
+  vfat {
+    files = {
+      %DTB_FILES%
+      "rpi-firmware/cmdline.txt",
+      "rpi-firmware/config.txt",
+      %EXTRAS%
+      %KIMAGE%
+    }
+  }
+  size = 32M
+}
+
+image sdcard.img {
+  hdimage {
+  }
+
+  partition boot {
+    partition-type = 0xC
+    bootable = "true"
+    image = "boot.vfat"
+  }
+
+  partition rootfs {
+    partition-type = 0x83
+    image = "rootfs.ext4"
+  }
+}

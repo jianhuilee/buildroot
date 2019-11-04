@@ -4,8 +4,83 @@ set -e
 
 BOARD_DIR="$(dirname $0)"
 BOARD_NAME="$(basename ${BOARD_DIR})"
-GENIMAGE_CFG="${BOARD_DIR}/genimage-${BOARD_NAME}.cfg"
+# GENIMAGE_CFG="${BOARD_DIR}/genimage-${BOARD_NAME}.cfg"
+GENIMAGE_CFG="$(mktemp --suffix genimage.cfg)"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
+
+genimage_type()
+{
+	echo "genimage-raspberrypi.cfg.template"
+}
+
+dtb_list()
+{
+	local DTB_LIST="$(sed -n 's/^BR2_LINUX_KERNEL_INTREE_DTS_NAME="\([\/a-z0-9 \-]*\)"$/\1/p' ${BR2_CONFIG})"
+
+	for dt in $DTB_LIST; do
+		echo -n "\"`basename $dt`.dtb\", "
+	done
+}
+
+extras_list()
+{
+
+	case "${BOARD_NAME}" in
+		"raspberry"| "raspberrypi0" | "raspberrypi2")
+		echo -n "\"rpi-firmware\/bootcode.bin\", "
+		echo -n "\"rpi-firmware\/fixup.dat\", "
+		echo -n "\"rpi-firmware\/start.elf\", "
+		;;
+		"raspberrypi0w" | "raspberrypi3_64" | "raspberrypi3")
+		echo -n "\"rpi-firmware\/bootcode.bin\", "
+		echo -n "\"rpi-firmware\/fixup.dat\", "
+		echo -n "\"rpi-firmware\/start.elf\", "
+		echo -n "\"rpi-firmware\/overlays\", "
+		;;
+		"raspberrypi4")
+		echo -n "\"rpi-firmware\/fixup4.dat\", "
+		echo -n "\"rpi-firmware\/start4.elf\", "
+		echo -n "\"rpi-firmware\/overlays\", "
+		;;
+	esac
+}
+
+linux_image()
+{
+	case "${BOARD_NAME}" in
+		"raspberrypi3_64")
+		echo "\"Image\""
+		;;
+		*)
+		echo "\"zImage\""
+		;;
+	esac
+}
+
+genimage_cfg()
+{
+	local DTB_FILES="$(dtb_list)"
+    local KIMAGE="$(linux_image)"
+    local EXTRAS="$(extras_list)"
+
+    echo "DEBUG: ${GENIMAGE_CFG}"
+	sed -e "s/%DTB_FILES%/${DTB_FILES}/" \
+		-e "s/%EXTRAS%/${EXTRAS}/" \
+		-e "s/%KIMAGE%/${KIMAGE}/" \
+		board/raspberrypi/$(genimage_type) > ${GENIMAGE_CFG}
+}
+
+dtb_config()
+{
+	if grep -Eq "^BR2_LINUX_KERNEL_LATEST_VERSION=y$" ${BR2_CONFIG}; then
+		local DTB_NAME="$(sed -n \
+						's/^BR2_LINUX_KERNEL_INTREE_DTS_NAME="\([a-z0-9\-]*\).*"$/\1/p' \
+						${BR2_CONFIG}).dtb"
+		cat << __EOF__ >> "${BINARIES_DIR}/rpi-firmware/config.txt"
+			device_tree=${DTB_NAME}
+__EOF__
+	fi
+}
 
 for arg in "$@"
 do
@@ -57,6 +132,9 @@ done
 trap 'rm -rf "${ROOTPATH_TMP}"' EXIT
 ROOTPATH_TMP="$(mktemp -d)"
 
+genimage_cfg
+dtb_config
+
 rm -rf "${GENIMAGE_TMP}"
 
 genimage \
@@ -65,5 +143,7 @@ genimage \
 	--inputpath "${BINARIES_DIR}"  \
 	--outputpath "${BINARIES_DIR}" \
 	--config "${GENIMAGE_CFG}"
+
+# rm -f ${GENIMAGE_CFG}
 
 exit $?
